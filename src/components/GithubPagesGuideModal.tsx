@@ -145,7 +145,11 @@ export const GithubPagesGuideModal: React.FC<Props> = ({ onClose }) => {
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span><b>.github/workflows/deploy.yml:</b> Dibuatkan workflow build & deploy otomatis untuk GitHub Actions dan branch <code className="text-cyan-300">gh-pages</code>.</span>
+                <span><b>.github/workflows/deploy.yml:</b> Dibuatkan workflow build & deploy otomatis untuk GitHub Actions dan branch <code className="text-cyan-300">gh-pages</code> (tanpa error lockfile).</span>
+              </li>
+              <li className="flex items-center gap-2">
+                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                <span><b>package-lock.json:</b> Disertakan file lock resmi sehingga dependency runner GitHub Actions terjamin sinkron 100%.</span>
               </li>
               <li className="flex items-center gap-2">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />

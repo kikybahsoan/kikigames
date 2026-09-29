@@ -27,15 +27,14 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 20
-          cache: 'npm'
 
       - name: Install Dependencies
-        run: npm ci || npm install
+        run: npm install --legacy-peer-deps
 
       - name: Build Web App with Vite
         run: npm run build
 
-      # Method 1: Deploy to gh-pages branch (for users with "Deploy from a branch -> gh-pages")
+      # Method 1: Deploy to gh-pages branch (for users choosing "Deploy from a branch -> gh-pages")
       - name: Deploy to gh-pages Branch
         uses: JamesIves/github-pages-deploy-action@v4
         with:
@@ -43,7 +42,7 @@ jobs:
           branch: gh-pages
         continue-on-error: true
 
-      # Method 2: Official GitHub Pages Artifact & Deployment (for users with "Source: GitHub Actions")
+      # Method 2: Official GitHub Pages Artifact & Deployment (for users choosing "Source: GitHub Actions")
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
