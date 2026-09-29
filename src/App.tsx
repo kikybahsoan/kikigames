@@ -8,17 +8,19 @@ import {
   Trophy, Settings, Palette, Bell, Swords, Volume2, 
   VolumeX, Maximize2, Camera, CameraOff, RefreshCw, 
   Play, Users, Sparkles, Award, ArrowRight, Zap, Flame,
-  Gauge, ShieldCheck, Crosshair, Sliders, User
+  Gauge, ShieldCheck, Crosshair, Sliders, User, Globe
 } from 'lucide-react';
 import { Question, ThemeConfig, LeaderboardEntry, ChallengeNotification, PlayMode } from './types';
 import { THEMES } from './data/themes';
 import { DEFAULT_QUESTIONS } from './data/defaultQuestions';
+import { DEFAULT_LEADERBOARD } from './data/defaultLeaderboard';
 import { GameCanvas } from './components/GameCanvas';
 import { ThemeSelector } from './components/ThemeSelector';
 import { AdminDashboard } from './components/AdminDashboard';
 import { LeaderboardModal } from './components/LeaderboardModal';
 import { NotificationCenter } from './components/NotificationCenter';
 import { MultiplayerLobbyModal } from './components/MultiplayerLobbyModal';
+import { GithubPagesGuideModal } from './components/GithubPagesGuideModal';
 import { KikiLogo } from './components/KikiLogo';
 import { AiMotivationWidget } from './components/AiMotivationWidget';
 import { sounds } from './utils/audio';
@@ -76,6 +78,7 @@ export default function App() {
   const [showLeaderboardModal, setShowLeaderboardModal] = useState<boolean>(false);
   const [showNotificationModal, setShowNotificationModal] = useState<boolean>(false);
   const [showLobbyModal, setShowLobbyModal] = useState<boolean>(false);
+  const [showGithubGuideModal, setShowGithubGuideModal] = useState<boolean>(false);
 
   // In-app challenge toast notification
   const [activeChallengeToast, setActiveChallengeToast] = useState<ChallengeNotification | null>(null);
@@ -84,31 +87,54 @@ export default function App() {
   const fetchQuestions = useCallback(async () => {
     try {
       const res = await fetch('/api/questions');
-      const data = await res.json();
-      if (data.questions && data.questions.length > 0) {
-        setQuestions(data.questions);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.questions && data.questions.length > 0) {
+          setQuestions(data.questions);
+          return;
+        }
       }
     } catch {
       // Fallback to local default
     }
+    setQuestions(DEFAULT_QUESTIONS);
   }, []);
 
   const fetchLeaderboard = useCallback(async () => {
     try {
       const res = await fetch('/api/leaderboard');
-      const data = await res.json();
-      if (data.leaderboard) {
-        setLeaderboard(data.leaderboard);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.leaderboard && data.leaderboard.length > 0) {
+          setLeaderboard(data.leaderboard);
+          localStorage.setItem('kiki_leaderboard', JSON.stringify(data.leaderboard));
+          return;
+        }
       }
     } catch {}
+
+    // Fallback to localStorage or DEFAULT_LEADERBOARD (great for GitHub Pages & static hosting)
+    const saved = localStorage.getItem('kiki_leaderboard');
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setLeaderboard(parsed);
+          return;
+        }
+      } catch {}
+    }
+    setLeaderboard(DEFAULT_LEADERBOARD);
   }, []);
 
   const fetchNotifications = useCallback(async () => {
     try {
       const res = await fetch('/api/notifications');
-      const data = await res.json();
-      if (data.challenges) {
-        setNotifications(data.challenges);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.challenges) {
+          setNotifications(data.challenges);
+        }
       }
     } catch {}
   }, []);
@@ -125,6 +151,10 @@ export default function App() {
     const wsUrl = `${protocol}//${window.location.host}`;
     const ws = new WebSocket(wsUrl);
     socketRef.current = ws;
+
+    ws.onerror = () => {
+      // Gracefully handle static environment (such as GitHub Pages) where WebSocket server is not running
+    };
 
     ws.onopen = () => {
       ws.send(JSON.stringify({
@@ -257,20 +287,39 @@ export default function App() {
     const winnerKubu = isSingle ? 'kiri' : (scoreLeft >= scoreRight ? 'kiri' : 'kanan');
     const accuracy = Math.round((Math.max(correctHitsLeft, correctHitsRight) / Math.max(1, (scoreLeft + scoreRight) / 10)) * 100);
 
+    const newEntry: LeaderboardEntry = {
+      id: `lead_${Date.now()}`,
+      name: winnerName,
+      score: winnerScore,
+      accuracy: Math.min(100, Math.max(70, accuracy || 90)),
+      kubu: winnerKubu,
+      mode: isSingle ? 'solo' : (isOnlineMode ? 'online' : 'local'),
+      category: gameCategory,
+      date: new Date().toISOString().split('T')[0]
+    };
+
+    // Update local state and localStorage immediately (guaranteed to work on GitHub Pages)
+    setLeaderboard(prev => {
+      const updated = [newEntry, ...prev.filter(i => i.id !== newEntry.id)]
+        .sort((a, b) => b.score - a.score)
+        .slice(0, 50);
+      localStorage.setItem('kiki_leaderboard', JSON.stringify(updated));
+      return updated;
+    });
+
     try {
-      await fetch('/api/leaderboard', {
+      const res = await fetch('/api/leaderboard', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          name: winnerName,
-          score: winnerScore,
-          accuracy: Math.min(100, Math.max(70, accuracy || 90)),
-          kubu: winnerKubu,
-          mode: isSingle ? 'solo' : (isOnlineMode ? 'online' : 'local'),
-          category: gameCategory
-        })
+        body: JSON.stringify(newEntry)
       });
-      fetchLeaderboard();
+      if (res.ok) {
+        const data = await res.json();
+        if (data.leaderboard) {
+          setLeaderboard(data.leaderboard);
+          localStorage.setItem('kiki_leaderboard', JSON.stringify(data.leaderboard));
+        }
+      }
     } catch {}
   };
 
@@ -375,6 +424,16 @@ export default function App() {
           >
             <Trophy className="w-4 h-4 text-yellow-400" />
             <span className="hidden md:inline">Peringkat</span>
+          </button>
+
+          {/* GitHub Pages Deploy Guide Button */}
+          <button
+            onClick={() => setShowGithubGuideModal(true)}
+            title="Panduan Deploy GitHub Pages & Atasi Blank Screen"
+            className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-gradient-to-r from-indigo-950 to-purple-950 hover:from-indigo-900 hover:to-purple-900 text-cyan-300 text-xs font-bold border border-cyan-500/40 transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
+          >
+            <Globe className="w-4 h-4 text-cyan-400" />
+            <span className="hidden sm:inline">Deploy Pages</span>
           </button>
 
           {/* Notification Center Button */}
@@ -1202,6 +1261,11 @@ export default function App() {
           isHost={true}
           onClose={() => setShowLobbyModal(false)}
         />
+      )}
+
+      {/* GitHub Pages Setup & Troubleshooting Guide Modal */}
+      {showGithubGuideModal && (
+        <GithubPagesGuideModal onClose={() => setShowGithubGuideModal(false)} />
       )}
 
       {/* Official Footer with kikybahsoan Watermark */}
