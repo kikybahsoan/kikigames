@@ -1,0 +1,6 @@
+{
+  "name": "Game Kiki - Battle Kuis Gerakan Tangan Kamera",
+  "description": "Game kuis edukatif interaktif dengan deteksi gerakan tangan kamera untuk menyentuh bola jawaban jatuh, mode battle 2 kubu split-screen vertikal, leaderboard global, dashboard edit soal admin, tema visual, dan notifikasi push.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
