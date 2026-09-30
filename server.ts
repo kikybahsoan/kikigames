@@ -56,7 +56,7 @@ app.post('/api/questions', (req, res) => {
   if (!newQ.text || !newQ.ans) {
     return res.status(400).json({ error: 'Pertanyaan dan jawaban benar wajib diisi' });
   }
-  newQ.id = 'q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6);
+  newQ.id = newQ.id || ('q_' + Date.now() + '_' + Math.random().toString(36).substring(2, 6));
   questions.unshift(newQ);
   res.json({ success: true, question: newQ });
 });

@@ -3,12 +3,13 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { 
   Trophy, Settings, Palette, Bell, Swords, Volume2, 
   VolumeX, Maximize2, Camera, CameraOff, RefreshCw, 
   Play, Users, Sparkles, Award, ArrowRight, Zap, Flame,
-  Gauge, ShieldCheck, Crosshair, Sliders, User, Globe
+  Gauge, ShieldCheck, Crosshair, Sliders, User, Globe,
+  GraduationCap
 } from 'lucide-react';
 import { Question, ThemeConfig, LeaderboardEntry, ChallengeNotification, PlayMode } from './types';
 import { THEMES } from './data/themes';
@@ -85,19 +86,106 @@ export default function App() {
 
   // Fetch initial questions, leaderboard, and challenges from backend
   const fetchQuestions = useCallback(async () => {
+    // 1. Check teacher's saved questions in localStorage first
+    const savedLocal = localStorage.getItem('kiki_custom_questions');
+    let loadedFromLocal = false;
+    if (savedLocal) {
+      try {
+        const parsed = JSON.parse(savedLocal);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setQuestions(parsed);
+          loadedFromLocal = true;
+        }
+      } catch {}
+    }
+
+    // 2. Fetch from backend API if available
     try {
       const res = await fetch('/api/questions');
       if (res.ok) {
         const data = await res.json();
         if (data.questions && data.questions.length > 0) {
-          setQuestions(data.questions);
+          // If we had custom local questions, merge them or keep updated
+          if (loadedFromLocal && savedLocal) {
+            const localList: Question[] = JSON.parse(savedLocal);
+            // Merge custom teacher questions into backend list
+            const combined = [...localList];
+            data.questions.forEach((dq: Question) => {
+              if (!combined.some(c => c.id === dq.id)) {
+                combined.push(dq);
+              }
+            });
+            setQuestions(combined);
+            localStorage.setItem('kiki_custom_questions', JSON.stringify(combined));
+          } else {
+            setQuestions(data.questions);
+            localStorage.setItem('kiki_custom_questions', JSON.stringify(data.questions));
+          }
           return;
         }
       }
     } catch {
-      // Fallback to local default
+      // Fallback
     }
+
+    if (!loadedFromLocal) {
+      setQuestions(DEFAULT_QUESTIONS);
+      localStorage.setItem('kiki_custom_questions', JSON.stringify(DEFAULT_QUESTIONS));
+    }
+  }, []);
+
+  // Teacher Question CRUD Handlers with LocalStorage Persistence
+  const handleAddQuestion = useCallback(async (q: Question) => {
+    setQuestions(prev => {
+      const updated = [q, ...prev.filter(item => item.id !== q.id)];
+      localStorage.setItem('kiki_custom_questions', JSON.stringify(updated));
+      return updated;
+    });
+
+    try {
+      await fetch('/api/questions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(q)
+      });
+    } catch {}
+  }, []);
+
+  const handleUpdateQuestion = useCallback(async (q: Question) => {
+    setQuestions(prev => {
+      const updated = prev.map(item => item.id === q.id ? q : item);
+      localStorage.setItem('kiki_custom_questions', JSON.stringify(updated));
+      return updated;
+    });
+
+    try {
+      await fetch(`/api/questions/${q.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(q)
+      });
+    } catch {}
+  }, []);
+
+  const handleDeleteQuestion = useCallback(async (id: string) => {
+    setQuestions(prev => {
+      const updated = prev.filter(q => q.id !== id);
+      localStorage.setItem('kiki_custom_questions', JSON.stringify(updated));
+      return updated;
+    });
+
+    try {
+      await fetch(`/api/questions/${id}`, { method: 'DELETE' });
+    } catch {}
+  }, []);
+
+  const handleResetQuestions = useCallback(async () => {
     setQuestions(DEFAULT_QUESTIONS);
+    localStorage.setItem('kiki_custom_questions', JSON.stringify(DEFAULT_QUESTIONS));
+
+    try {
+      await fetch('/api/questions/reset', { method: 'POST' });
+    } catch {}
   }, []);
 
   const fetchLeaderboard = useCallback(async () => {
@@ -214,9 +302,49 @@ export default function App() {
     };
   }, [playerLeftName]);
 
+  // Dynamic Categories computation for Game Menu
+  const availableCategoriesList = useMemo(() => {
+    const list: { id: string; label: string; count: number }[] = [
+      { id: 'all', label: '🌟 Semua Soal (Campuran)', count: questions.length },
+      { id: 'math', label: '📐 Matematika', count: questions.filter(q => (q.category || '').toLowerCase() === 'math').length },
+      { id: 'science', label: '🔬 IPA / Sains', count: questions.filter(q => (q.category || '').toLowerCase() === 'science').length },
+      { id: 'indo', label: '📖 Bahasa Indonesia', count: questions.filter(q => (q.category || '').toLowerCase() === 'indo').length },
+      { id: 'eng', label: '🇬🇧 Bahasa Inggris', count: questions.filter(q => (q.category || '').toLowerCase() === 'eng').length },
+      { id: 'ips', label: '🏛️ IPS & Sejarah', count: questions.filter(q => (q.category || '').toLowerCase() === 'ips').length },
+      { id: 'general', label: '🌍 Pengetahuan Umum', count: questions.filter(q => (q.category || '').toLowerCase() === 'general').length }
+    ];
+
+    // Find any custom categories added by teachers
+    const standardIds = ['all', 'math', 'science', 'indo', 'eng', 'ips', 'general'];
+    const customCats = new Set<string>();
+    questions.forEach(q => {
+      const c = (q.category || '').toLowerCase();
+      if (c && !standardIds.includes(c)) {
+        customCats.add(c);
+      }
+    });
+
+    customCats.forEach(cat => {
+      const count = questions.filter(q => (q.category || '').toLowerCase() === cat).length;
+      list.push({
+        id: cat,
+        label: `✨ Soal Guru: ${cat.toUpperCase()}`,
+        count
+      });
+    });
+
+    return list;
+  }, [questions]);
+
   // Handle Question Picking
   const pickNextQuestion = useCallback(() => {
-    const pool = questions.filter(q => q.category === gameCategory) || questions;
+    let pool = questions;
+    if (gameCategory !== 'all') {
+      const filtered = questions.filter(q => (q.category || '').toLowerCase() === gameCategory.toLowerCase());
+      if (filtered.length > 0) {
+        pool = filtered;
+      }
+    }
     const candidates = pool.length > 0 ? pool : questions;
     const randomQ = candidates[Math.floor(Math.random() * candidates.length)];
     setCurrentQuestion(randomQ);
@@ -450,13 +578,14 @@ export default function App() {
             )}
           </button>
 
-          {/* Admin Dashboard */}
+          {/* Ruang Guru (Buat Soal Sendiri) */}
           <button
             onClick={() => setShowAdminModal(true)}
-            title="Dashboard Edit Soal Admin"
-            className="p-2 rounded-xl bg-slate-800/80 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-colors"
+            title="Ruang Guru: Buat & Kelola Soal Kuis Sendiri"
+            className="p-2 sm:px-3 sm:py-1.5 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition-all flex items-center gap-1.5 shadow-sm active:scale-95"
           >
-            <Settings className="w-4 h-4 text-slate-300" />
+            <GraduationCap className="w-4 h-4 text-amber-400" />
+            <span className="hidden md:inline">Ruang Guru</span>
           </button>
 
           {/* Sound Toggle */}
@@ -829,6 +958,15 @@ export default function App() {
                   {playMode === 'single' ? 'MAIN SINGLE PLAYER (SOLO) ⚡' : 'MULAI DUEL VERSUS ⚔️'}
                 </button>
 
+                {/* Prominent Teacher Button */}
+                <button
+                  onClick={() => setShowAdminModal(true)}
+                  className="flex items-center gap-2 px-6 py-3.5 rounded-2xl bg-amber-400 hover:bg-amber-500 text-slate-950 font-black text-sm shadow-xl shadow-amber-400/25 transition-all active:scale-95"
+                >
+                  <GraduationCap className="w-5 h-5 stroke-[2.5]" />
+                  <span>Ruang Guru: Buat Soal Sendiri ✏️</span>
+                </button>
+
                 {playMode === 'versus' && (
                   <button
                     onClick={() => setShowLobbyModal(true)}
@@ -900,16 +1038,26 @@ export default function App() {
 
               {/* Subject Category */}
               <div>
-                <label className="block text-slate-400 font-semibold mb-1">Mata Pelajaran</label>
+                <div className="flex items-center justify-between mb-1">
+                  <label className="text-slate-400 font-semibold">Mata Pelajaran</label>
+                  <button
+                    type="button"
+                    onClick={() => setShowAdminModal(true)}
+                    className="text-amber-400 hover:text-amber-300 font-bold text-[10px] hover:underline"
+                  >
+                    + Buat Soal
+                  </button>
+                </div>
                 <select
                   value={gameCategory}
                   onChange={(e) => setGameCategory(e.target.value)}
-                  className="w-full p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white font-semibold focus:outline-none focus:border-amber-400"
+                  className="w-full p-2.5 rounded-xl bg-slate-800 border border-slate-700 text-white font-semibold focus:outline-none focus:border-amber-400 text-xs"
                 >
-                  <option value="math">Matematika</option>
-                  <option value="eng">Bahasa Inggris (Kosakata)</option>
-                  <option value="science">IPA / Sains</option>
-                  <option value="general">Pengetahuan Umum</option>
+                  {availableCategoriesList.map(cat => (
+                    <option key={cat.id} value={cat.id}>
+                      {cat.label} ({cat.count} soal)
+                    </option>
+                  ))}
                 </select>
               </div>
 
@@ -1163,39 +1311,10 @@ export default function App() {
       {showAdminModal && (
         <AdminDashboard
           questions={questions}
-          onAddQuestion={async (q) => {
-            const res = await fetch('/api/questions', {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(q)
-            });
-            const data = await res.json();
-            if (data.question) {
-              setQuestions(prev => [data.question, ...prev]);
-            }
-          }}
-          onUpdateQuestion={async (q) => {
-            const res = await fetch(`/api/questions/${q.id}`, {
-              method: 'PUT',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(q)
-            });
-            const data = await res.json();
-            if (data.question) {
-              setQuestions(prev => prev.map(item => item.id === q.id ? data.question : item));
-            }
-          }}
-          onDeleteQuestion={async (id) => {
-            await fetch(`/api/questions/${id}`, { method: 'DELETE' });
-            setQuestions(prev => prev.filter(q => q.id !== id));
-          }}
-          onResetQuestions={async () => {
-            const res = await fetch('/api/questions/reset', { method: 'POST' });
-            const data = await res.json();
-            if (data.questions) {
-              setQuestions(data.questions);
-            }
-          }}
+          onAddQuestion={handleAddQuestion}
+          onUpdateQuestion={handleUpdateQuestion}
+          onDeleteQuestion={handleDeleteQuestion}
+          onResetQuestions={handleResetQuestions}
           onClose={() => setShowAdminModal(false)}
         />
       )}
